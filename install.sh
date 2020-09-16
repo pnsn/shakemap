@@ -19,7 +19,7 @@ CC_PKG=c-compiler
 source $prof
 
 # Name of virtual environment
-VENV=shakemap
+VENV=pnsn-shakemap
 
 developer=0
 py_ver=3.8

@@ -2,6 +2,7 @@
 import numpy as np
 
 # stdlib imports
+from openquake.hazardlib import imt
 from openquake.hazardlib.imt import PGA, PGV, SA
 from shakelib.gmice.gmice import GMICE
 
@@ -269,3 +270,42 @@ class WGRW12(GMICE):
         c = self._constants[imt]
         c2 = self._constants2[imt]
         return (c, c2)
+    
+    def getPreferredMI(self, df, dists=None, mag=None):
+        """RH: added by me. The superclass version only uses PGV, we want
+           to use both PGV and PGA and use the combined relation"""
+        if 'PGA' not in df or 'PGV' not in df:
+            if 'PGV' in df:
+                oqimt = imt.from_string('PGV')
+                return self.getMIfromGM(df['PGV'], oqimt, dists, mag)[0]
+            elif 'PGA' in df:
+                oqimt = imt.from_string('PGA')
+                return self.getMIfromGM(df['PGA'], oqimt, dists, mag)[0]
+            else:
+                return None
+        oqimt = imt.from_string('PGA')
+        mmi_pga = self.getMIfromGM(df['PGA'], oqimt, dists, mag)[0]
+        ix_nan_pga = np.isnan(mmi_pga)
+        oqimt = imt.from_string('PGV')
+        mmi_pgv = self.getMIfromGM(df['PGV'], oqimt, dists, mag)[0]
+        ix_nan_pgv = np.isnan(mmi_pgv)
+        ix_nan = ix_nan_pga | ix_nan_pgv
+        vscale = np.zeros_like(mmi_pga)
+        #vscale[~ix_nan] = (mmi_pga[~ix_nan] - 5) / 2
+        vscale[~ix_nan] = 0.52
+        vscale[vscale < 0] = 0
+        vscale[vscale > 1] = 1
+        ascale = np.zeros_like(mmi_pga)
+        ascale[~ix_nan] = 0.46
+        ascale[ascale < 0] = 0
+        ascale[ascale > 1] = 1
+        mmi = np.full_like(mmi_pga, np.nan)
+        mmi[~ix_nan] = np.clip(mmi_pga[~ix_nan] * ascale[~ix_nan] +
+                               mmi_pgv[~ix_nan] * vscale[~ix_nan], 1, 10)
+        mmi[ix_nan_pgv] = mmi_pga[ix_nan_pgv]
+        mmi[ix_nan_pga] = mmi_pgv[ix_nan_pga]
+        ix_nan = np.isnan(mmi)
+        mmi95 = np.full_like(mmi, False, dtype=bool)
+        mmi95[~ix_nan] = mmi[~ix_nan] > 9.5
+        mmi[mmi95] = 10.0
+        return mmi
